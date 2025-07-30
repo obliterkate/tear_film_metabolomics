@@ -1,50 +1,61 @@
-// Load information about a compound based on its ID
-async function loadInfo(compoundId) {
+// Load information about a compound based on its ID or Name
+
+async function loadInfo(compoundInput) {
     try {
         const response = await fetch("compounds.json");
         const compounds = await response.json();
 
-        const names = compounds
-            .filter(c => c.compound_id == compoundId)
-            .map(c => c.compound_name)
-            .sort((a, b) => {
-                return a.localeCompare(b);
-            });
+        // Normalize input (case-insensitive for names)
+        const inputLower = compoundInput.trim().toLowerCase();
 
-        const formula = compounds
-            .filter(c => c.compound_id == compoundId)
-            .map(c => c.formula);
+        // Match by ID (exact) or Name (case-insensitive)
+        const matches = compounds.filter(c =>
+            (c.compound_id && c.compound_id === compoundInput) ||
+            (c.compound_name && c.compound_name.toLowerCase() === inputLower)
+        );
 
-        const canonicalSmiles = compounds
-            .filter(c => c.compound_id == compoundId)
-            .map(c => c.canonical_smiles);
+        // Handle found compound
+        if (matches.length > 0) {
+            const compound = matches[0];
 
-        document.getElementById('compoundId').innerText = `${compoundId}`;
-        
-        if (names.length > 0) {
-            document.title = `Compound: ${names[0]}`;
-            document.getElementById('nameTitle').innerText = names.length == 1 ? "Name:" : "Names:";
-            document.getElementById('compoundName').innerText = `${names.join("\n")}`;
-            document.getElementById('compoundFormula').innerText = `${formula[0]}`;
-            document.getElementById('compoundSmiles').innerText = `${canonicalSmiles[0]}`;
+            // Update Title
+            document.title = `Compound: ${compound.compound_name || compound.compound_id}`;
+
+            // Display data with fallbacks for missing fields
+            document.getElementById('compoundId').innerText = compound.compound_id || "Not available";
+            document.getElementById('nameTitle').innerText = "Name:";
+            document.getElementById('compoundName').innerText = compound.compound_name || "Name not available";
+            document.getElementById('compoundFormula').innerText = compound.formula || "Formula not available";
+            document.getElementById('compoundSmiles').innerText = compound.canonical_smiles || "SMILES not available";
+
+            // Links
+            if (compound.compound_id) {
+                document.getElementById('keggLink').href = `https://www.genome.jp/dbget-bin/www_bget?cpd:${compound.compound_id}`;
+                document.getElementById('pubchemLink').href = `https://pubchem.ncbi.nlm.nih.gov/compound/${compound.compound_id}`;
+            } else {
+                document.getElementById('keggLink').removeAttribute('href');
+                document.getElementById('pubchemLink').removeAttribute('href');
+            }
+
         } else {
-            document.getElementById('compoundName').innerText = `Compound not found`;
+            // If compound not found
+            document.getElementById('compoundId').innerText = compoundInput;
+            document.getElementById('compoundName').innerText = "Compound not found";
+            document.getElementById('compoundFormula').innerText = "-";
+            document.getElementById('compoundSmiles').innerText = "-";
         }
-        
-        // Create URLs for KEGG and PubChem using compound ID
-        const keggUrl = `https://www.genome.jp/dbget-bin/www_bget?cpd:${compoundId}`;
-        const pubchemUrl = `https://pubchem.ncbi.nlm.nih.gov/compound/${compoundId}`;
-        document.getElementById('keggLink').href = keggUrl;
-        document.getElementById('pubchemLink').href = pubchemUrl;
+
     } catch (error) {
         console.error("Error fetching compound data:", error);
+        document.getElementById('compoundName').innerText = "Error loading data";
     }
 }
 
+// Get query parameter from URL (compoundId = ID or Name)
 const urlParams = new URLSearchParams(window.location.search);
-const compoundId = urlParams.get('compoundId');
-if (compoundId) {
-    loadInfo(compoundId);
+const compoundInput = urlParams.get('compoundId');
+if (compoundInput) {
+    loadInfo(compoundInput);
 } else {
-    document.getElementById('compoundId').innerText = "Compound ID not provided.";
+    document.getElementById('compoundId').innerText = "Compound ID or Name not provided.";
 }
