@@ -68,8 +68,10 @@ function renderTable(data) {
             style = "text-align: center;";
         }
 
+        const metaboliteLink = `<a href="compound_tab.html?compoundId=${row.Metabolite}" class="compound-link">${row.Metabolite}</a>`;
+
         tr.innerHTML = `
-            <td>${row.Metabolite}</td>
+            <td>${metaboliteLink}</td>
             <td style="text-align: center;">${row.FoldChange}</td>
             <td style="text-align: center;">${row.Log2FoldChange}</td>
             <td style="text-align: center;">${row.PValue}</td>
