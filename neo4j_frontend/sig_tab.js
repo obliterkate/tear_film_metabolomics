@@ -1,41 +1,66 @@
-// Order of priority for status and regulation
-const statusPriority = {
-    "Sufficient Data": 3,
-    "Constant Data": 2,
-    "Insufficient Data": 1
-};
-
 const regPriority = {
     "up": 3,
     "down": 2,
     "undefined": 1
+};
+
+document.getElementById("uploadExcel").addEventListener("change", handleExcelUpload);
+
+function handleExcelUpload(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = function (e) {
+        const data = new Uint8Array(e.target.result);
+        const workbook = XLSX.read(data, { type: "array" });
+        const sheetName = workbook.SheetNames[0];
+        const rawData = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]);
+
+        const idCounts = {};
+        rawData.forEach(row => {
+            const id = row["ID"];
+            if (id) idCounts[id] = (idCounts[id] || 0) + 1;
+        });
+
+        const processedData = rawData.map(row => {
+            const log2FC = parseFloat(row["log 2 FC"]);
+            let reg = "Undefined";
+            if (!isNaN(log2FC)) reg = log2FC > 0 ? "Upregulated" : "Downregulated";
+
+            const format = val => isNaN(val) ? val : parseFloat(val).toPrecision(5);
+
+            return {
+                Metabolite: row["ID"],
+                FoldChange: format(row["fold change"]),
+                Log2FoldChange: format(row["log 2 FC"]),
+                PValue: format(row["P value"]),
+                Regulation: reg,
+                Duplicate_Count: idCounts[row["ID"]] || 1
+            };
+        });
+
+        renderTable(processedData);
+    };
+    reader.readAsArrayBuffer(file);
 }
 
-// loadResults
-//      - Loads the results from the json file into the table
-//
-// Returns:
-//      - nothing
-//
-async function loadResults() {
-    const response = await fetch("sig_ranked.json");
-    const data = await response.json();
+function renderTable(data) {
     const tbody = document.getElementById("tableBody");
+    tbody.innerHTML = "";
 
     data.forEach(row => {
         const tr = document.createElement("tr");
         tr.setAttribute("data-row", JSON.stringify(row).toLowerCase());
 
-        let id = "";
-        let regulation = "";
-        let style = "";
-        if (row.Regulation == "Upregulated") {
+        let id = "", regulation = "", style = "";
+        if (row.Regulation === "Upregulated") {
             id = "up";
-            regulation = "➜";
+            regulation = "➔";
             style = "font-size: 24px; color: #00ff00; text-align: center; transform: rotate(-90deg);";
-        } else if (row.Regulation == "Downregulated") {
+        } else if (row.Regulation === "Downregulated") {
             id = "down";
-            regulation = "➜";
+            regulation = "➔";
             style = "font-size: 24px; color: #ff0000; text-align: center; transform: rotate(90deg);";
         } else {
             id = "undefined";
@@ -48,170 +73,78 @@ async function loadResults() {
             <td style="text-align: center;">${row.FoldChange}</td>
             <td style="text-align: center;">${row.Log2FoldChange}</td>
             <td style="text-align: center;">${row.PValue}</td>
-            <td style="text-align: center;">${row.CVG_Count}</td>
-            <td style="text-align: center;">${row.CVH_Count}</td>
-            <td style="text-align: center;">${row.Status}</td>
             <td id="${id}" style="${style}">${regulation}</td>
-            <td style="text-align: center;">${row.Source}</td>
+            <td style="text-align: center;">${row.Duplicate_Count}</td>
         `;
         tbody.appendChild(tr);
     });
 }
 
-// filterResults
-//      - Filters the results to find the given filter text
-//
-// Returns:
-//      - nothing
-//
 function filterResults() {
     const filter = document.getElementById("filter").value.toLowerCase();
     const rows = document.querySelectorAll("#resultsTable tbody tr");
-
     rows.forEach(row => {
         const rowData = row.getAttribute("data-row");
         row.style.display = rowData.includes(filter) ? "" : "none";
     });
 }
 
-// filterByPValue
-//      - Filters and displays results by p-value thresholds
-//      - Can be used in conjunction with sort by p-value to order metabolites
-//
-// Returns:
-//      - nothing
-//
 function filterByPValue() {
-    const pValueThreshold = parseFloat(document.getElementById("pValueInput").value);
-    const rows = document.getElementById("tableBody").getElementsByTagName("tr");
-
-    for (let row of rows) {
-        const pValueText = row.querySelector("td:nth-child(4)").textContent.trim();
-        const pValue = parseFloat(pValueText);
-
-        if (!isNaN(pValue) && pValue <= pValueThreshold) {
-            row.style.display = "";
-        } else {
-            row.style.display = "none";
-        }
-    }
+    const threshold = parseFloat(document.getElementById("pValueInput").value);
+    const rows = document.querySelectorAll("#resultsTable tbody tr");
+    rows.forEach(row => {
+        const pVal = parseFloat(row.querySelector("td:nth-child(4)").textContent.trim());
+        row.style.display = (!isNaN(pVal) && pVal <= threshold) ? "" : "none";
+    });
 }
 
-// sortResults
-//      - Sorts the results on the method given by the dropdown box and the direction buttons
-//
-// Returns:
-//      - nothing
-//
 function sortResults() {
     const method = document.getElementById("sortingDropdown").value || 1;
-    const direction = document.getElementById('asc').checked ? "asc" :
-                      document.getElementById('desc').checked ? "desc" : "asc";
+    const direction = document.getElementById('asc').checked ? "asc" : "desc";
     const tableBody = document.querySelector("#resultsTable tbody");
     const rows = Array.from(tableBody.querySelectorAll("tr"));
 
     rows.sort((a, b) => {
-        const nameA = a.querySelector("td:nth-child(1)").textContent.trim().toLowerCase();
-        const nameB = b.querySelector("td:nth-child(1)").textContent.trim().toLowerCase();
-        const compareNames = nameA.localeCompare(nameB);
+        const getText = (el, n) => el.querySelector(`td:nth-child(${n})`).textContent.trim();
 
         if (method == "1") {
-            // Sort by Name
-            return direction == "asc" ? compareNames : -compareNames;
-        } else if (method == "7") {
-            // Sort by Status
-            const statusA = a.querySelector("td:nth-child(7)").textContent.trim();
-            const statusB = b.querySelector("td:nth-child(7)").textContent.trim();
-            const compareStatus = statusPriority[statusB] - statusPriority[statusA];
-            if (direction == "asc") {
-                return compareStatus != 0 ? compareStatus : compareNames;
-            } else {
-                return compareStatus != 0 ? -compareStatus : -compareNames;
-            }
+            const [aText, bText] = [getText(a, 1).toLowerCase(), getText(b, 1).toLowerCase()];
+            return direction === "asc" ? aText.localeCompare(bText) : bText.localeCompare(aText);
+        } else if (method == "4") {
+            const [aNum, bNum] = [parseFloat(getText(a, 4)), parseFloat(getText(b, 4))];
+            return direction === "asc" ? aNum - bNum : bNum - aNum;
         } else if (method == "8") {
-            // Sort by Regulation
-            const regA = a.querySelector("td:nth-child(8)").id;
-            const regB = b.querySelector("td:nth-child(8)").id;
-            const compareReg = regPriority[regB] - regPriority[regA];
-            if (direction == "asc") {
-                return compareReg != 0 ? compareReg : compareNames;
-            } else {
-                return compareReg != 0 ? -compareReg : -compareNames;
-            }
-        } else if (method == "9") {
-            // Sort by Source
-            const srcA = a.querySelector("td:nth-child(9)").textContent.trim();
-            const srcB = b.querySelector("td:nth-child(9)").textContent.trim();
-            const compareSrc = srcA.localeCompare(srcB);
-            if (direction == "asc") {
-                return compareSrc != 0 ? compareSrc : compareNames;
-            } else {
-                return compareSrc != 0 ? -compareSrc : -compareNames;
-            }
+            const [aReg, bReg] = [a.querySelector("td:nth-child(5)").id, b.querySelector("td:nth-child(5)").id];
+            return direction === "asc" ? regPriority[bReg] - regPriority[aReg] : regPriority[aReg] - regPriority[bReg];
         } else {
-            // Sort by Fold Change, log_2(Fold Change), P-Value, CVG Count or CVH Count
-            let numA = a.querySelector("td:nth-child(" + method + ")").textContent.trim();
-            let numB = b.querySelector("td:nth-child(" + method + ")").textContent.trim();
-            if (numA == "undefined") numA = -100;
-            if (numB == "undefined") numB = -100;
-            const compareNums = numB - numA;
-            if (direction == "asc") {
-                return compareNums != 0 ? compareNums : compareNames;
-            } else {
-                return compareNums != 0 ? -compareNums : -compareNames;
-            }
+            const [aNum, bNum] = [parseFloat(getText(a, method)), parseFloat(getText(b, method))];
+            return direction === "asc" ? aNum - bNum : bNum - aNum;
         }
     });
 
-    // Append sorted rows back to the table body
     rows.forEach(row => tableBody.appendChild(row));
 }
 
-// changeOptions
-//      - Changes the names of the direction buttons to match the current sorting method
-//
-// Returns:
-//      - nothing
-//
 function changeOptions() {
     const method = document.getElementById("sortingDropdown").value;
-    const direction = document.getElementById("sort-direction");
-    const asc = document.getElementById("asc");
-    const desc = document.getElementById("desc");
-    direction.style.display = "block";
+    const ascLabel = document.querySelector("label[for='asc']");
+    const descLabel = document.querySelector("label[for='desc']");
+    const directionBox = document.getElementById("sort-direction");
 
-    if (method == "1" || method == "9") {
-        // Sort by Name or Source (A-Z or Z-A)
-        document.querySelector("label[for='asc']").textContent = "A - Z";
-        document.querySelector("label[for='desc']").textContent = "Z - A";
+    directionBox.style.display = "block";
+    if (method == "1") {
+        ascLabel.textContent = "A - Z";
+        descLabel.textContent = "Z - A";
     } else if (method == "4") {
-        // Sort by P-value
-        document.getElementById("pValueInput").style.display = "block";
-        document.getElementById("pValueInput").focus();
-        document.querySelector("label[for='asc']").textContent = "Descending";
-        document.querySelector("label[for='desc']").textContent = "Ascending";
-    } else if (method == "5" || method == "6") {
-        // Sort by CVG Samples or CVH Samples (High-Low or Low-High)
-        document.querySelector("label[for='asc']").textContent = "High";
-        document.querySelector("label[for='desc']").textContent = "Low";
-    } else if (method == "7") {
-        // Sort by Status (Suff-Insuff or Insuff-Suff)
-        document.querySelector("label[for='asc']").textContent = "Sufficient";
-        document.querySelector("label[for='desc']").textContent = "Insufficient";
+        ascLabel.textContent = "Ascending";
+        descLabel.textContent = "Descending";
     } else if (method == "8") {
-        // Sort by Regulation (Up-Down or Down-Up)
-        document.querySelector("label[for='asc']").textContent = "Up";
-        document.querySelector("label[for='desc']").textContent = "Down";
+        ascLabel.textContent = "Up";
+        descLabel.textContent = "Down";
     } else {
-        // Sort by Fold Change or log_2(Fold Change) (Asc or Desc)
-        document.querySelector("label[for='asc']").textContent = "Ascending";
-        document.querySelector("label[for='desc']").textContent = "Descending";
+        ascLabel.textContent = "Ascending";
+        descLabel.textContent = "Descending";
     }
 
-    // Keep the same option for the direction
-    if (asc.checked || desc.checked) sortResults();
-
     sortResults();
-}
-
-loadResults();
+} 
